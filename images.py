@@ -23,8 +23,7 @@ def load_image(img_id, img_dir, img_size=(224, 224)):
     """
     path = os.path.join(img_dir, f"{img_id}.jpg")
     img = Image.open(path).resize(img_size).convert('RGB')
-    img = np.array(img) / 255.0  # Normalize pixel values to [0, 1]
-    return img
+    return np.array(img) / 255.0  # Normalize to [0, 1]
 
 def save_to_XML(predictions, output_dir, test_ids, true_labels):
     """
@@ -61,8 +60,8 @@ def main(input_dir, output_dir):
     
     data = pd.read_csv(csv_path)
     data["image"] = data["userid"].apply(lambda x: load_image(x, img_dir))
-    X = np.stack(data["image"].values)
-    y = data["gender"].values  # 0 for male, 1 for female
+    X = np.stack(data["image"].values).astype('float32')  # Ensure all images are float32
+    y = np.array(data["gender"].values, dtype='float32')  # Convert labels to float32
     user_ids = data["userid"].values  # User IDs for XML generation
 
     # Split into training and validation sets
