@@ -1,97 +1,98 @@
-#!/bin/bash
-
-# Ensure Python3 is installed and accessible
-PYTHON=$(which python3)
-
-# Define Python script inline
-PYTHON_SCRIPT=$(cat <<EOF
+#!/usr/bin/python3
 import os
-import argparse
-import numpy as np
+import torch
+import torchvision.transforms as transforms
+from PIL import Image
 import xml.etree.ElementTree as ET
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.image import load_img, img_to_array
+import argparse
+import random
 
-# Function to load and preprocess images
-def load_images(image_dir, user_ids):
-    images = []
-    for user_id in user_ids:
-        img_path = os.path.join(image_dir, f"{user_id}.jpg")
-        if os.path.exists(img_path):
-            img = load_img(img_path, target_size=(128, 128))  # Resize images to match model input
-            img_array = img_to_array(img) / 255.0  # Normalize pixel values
-            images.append(img_array)
-        else:
-            print(f"Warning: Image {img_path} not found.")
-    return np.array(images)
+# Hardcoded model path
+MODEL_PATH = "/path/to/your/model.pth"
 
-# Function to generate fake trait values for demo purposes
-def generate_personality_traits():
-    return {
-        "extrovert": round(np.random.uniform(2.5, 5.0), 2),
-        "neurotic": round(np.random.uniform(2.5, 5.0), 2),
-        "agreeable": round(np.random.uniform(2.5, 5.0), 2),
-        "conscientious": round(np.random.uniform(2.5, 5.0), 2),
-        "open": round(np.random.uniform(2.5, 5.0), 2)
+# Gender Prediction Model Class (update this to match your model's structure)
+class GenderModel(torch.nn.Module):
+    def __init__(self):
+        super(GenderModel, self).__init__()
+        self.model = torch.nn.Sequential(
+            torch.nn.Linear(512, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 2)  # Assuming 2 outputs: male (0) and female (1)
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+# Function to load the model
+def load_model():
+    model = GenderModel()
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))
+    model.eval()
+    return model
+
+# Function to preprocess the image
+def preprocess_image(image_path):
+    transform = transforms.Compose([
+        transforms.Resize((128, 128)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    image = Image.open(image_path).convert('RGB')
+    return transform(image).unsqueeze(0)
+
+# Function to predict gender
+def predict_gender(model, image_tensor):
+    with torch.no_grad():
+        outputs = model(image_tensor)
+        _, predicted = torch.max(outputs, 1)
+    return 'male' if predicted.item() == 0 else 'female'
+
+# Function to generate XML
+def generate_xml(output_dir, image_name, gender):
+    random_stats = {
+        "age_group": random.choice(["xx-24", "25-34", "35-49", "50-xx"]),
+        "extrovert": round(random.uniform(1.0, 5.0), 2),
+        "neurotic": round(random.uniform(1.0, 5.0), 2),
+        "agreeable": round(random.uniform(1.0, 5.0), 2),
+        "conscientious": round(random.uniform(1.0, 5.0), 2),
+        "open": round(random.uniform(1.0, 5.0), 2),
     }
+    user = ET.Element("user")
+    user.set("id", os.path.splitext(image_name)[0])
+    user.set("age_group", random_stats["age_group"])
+    user.set("gender", gender)
+    user.set("extrovert", str(random_stats["extrovert"]))
+    user.set("neurotic", str(random_stats["neurotic"]))
+    user.set("agreeable", str(random_stats["agreeable"]))
+    user.set("conscientious", str(random_stats["conscientious"]))
+    user.set("open", str(random_stats["open"]))
 
-# Function to write XML output
-def write_xml(user_id, age_group, gender, traits, output_dir):
-    # Create XML structure
-    user = ET.Element("user", attrib={
-        "id": user_id,
-        "age_group": age_group,
-        "gender": "female" if gender == 1 else "male",
-        "extrovert": str(traits["extrovert"]),
-        "neurotic": str(traits["neurotic"]),
-        "agreeable": str(traits["agreeable"]),
-        "conscientious": str(traits["conscientious"]),
-        "open": str(traits["open"])
-    })
-    # Write to XML file
+    output_path = os.path.join(output_dir, f"{os.path.splitext(image_name)[0]}.xml")
     tree = ET.ElementTree(user)
-    output_path = os.path.join(output_dir, f"{user_id}.xml")
-    tree.write(output_path)
+    tree.write(output_path, encoding='utf-8', xml_declaration=True)
 
-# Main function
-def main(input_dir, output_dir):
-    # Ensure output directory exists
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
-    # Load model
-    model_path = os.path.expanduser("gender_prediction_model_images_only.h5")
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model file not found at {model_path}")
-    model = load_model(model_path)
-    
-    # Load user IDs from input directory
-    user_ids = [file.split('.')[0] for file in os.listdir(input_dir) if file.endswith(".jpg")]
+# Main function to process images
+def process_images(input_dir, output_dir):
+    model = load_model()
 
-    # Load and preprocess images
-    images = load_images(input_dir, user_ids)
-    
-    # Predict gender
-    predictions = model.predict(images)
-    predicted_genders = np.argmax(predictions, axis=1)
-    
-    # Generate XML output for each user
-    for user_id, gender in zip(user_ids, predicted_genders):
-        # Assign random age group for demonstration (modify as needed)
-        age_group = "xx-24"  # Placeholder age group
-        traits = generate_personality_traits()
-        write_xml(user_id, age_group, gender, traits, output_dir)
-    print(f"Prediction and XML generation complete. Results saved to {output_dir}")
+    os.makedirs(output_dir, exist_ok=True)
 
-# Parse command-line arguments
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Gender Prediction Script")
-    parser.add_argument("-i", "--input", required=True, help="Path to input test data (directory containing .jpg files)")
-    parser.add_argument("-o", "--output", required=True, help="Path to output directory for XML files")
+    for image_name in os.listdir(input_dir):
+        if image_name.lower().endswith(('.png', '.jpg', '.jpeg')):
+            image_path = os.path.join(input_dir, image_name)
+            image_tensor = preprocess_image(image_path)
+            gender = predict_gender(model, image_tensor)
+            generate_xml(output_dir, image_name, gender)
+            print(f"Processed {image_name}: Gender = {gender}")
+
+# Command-line argument handling
+def main():
+    parser = argparse.ArgumentParser(description="Predict gender from images and generate XML files.")
+    parser.add_argument("-i", "--input", required=True, help="Path to the input directory containing images.")
+    parser.add_argument("-o", "--output", required=True, help="Path to the output directory for XML files.")
     args = parser.parse_args()
-    main(args.input, args.output)
-EOF
-)
 
-# Run the Python code
-$PYTHON -c "$PYTHON_SCRIPT" "$@"
+    process_images(args.input, args.output)
+
+if __name__ == "__main__":
+    main()
