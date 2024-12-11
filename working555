@@ -1,11 +1,22 @@
 #!/bin/bash
 
+# Check if the script is being run with the correct name
+SCRIPT_NAME=$(basename "$0")
+
+# If the script is not named exactly as expected, create a symlink
+if [ "$SCRIPT_NAME" != "Script" ]; then
+    ln -sf "$0" "$PWD/Script"
+    echo "Created symlink for Script. Please run using ./Script"
+    exit 1
+fi
+
 # Ensure Python3 is installed and accessible
 PYTHON=$(which python3)
 
 # Define Python script inline
 PYTHON_SCRIPT=$(cat <<EOF
 import os
+import sys
 import argparse
 import numpy as np
 import xml.etree.ElementTree as ET
@@ -67,6 +78,10 @@ def main(input_dir, output_dir):
 
     # Load user IDs from input directory
     user_ids = [file.split('.')[0] for file in os.listdir(input_dir) if file.endswith(".jpg")]
+    
+    if not user_ids:
+        print(f"No image files found in {input_dir}")
+        sys.exit(1)
 
     # Load and preprocess images
     images = load_images(input_dir, user_ids)
@@ -87,15 +102,27 @@ def main(input_dir, output_dir):
 # Parse command-line arguments
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gender Prediction Script")
-    parser.add_argument("-i", "--input", required=False, help="Path to input test data (directory containing .jpg files)", default="image")
+    parser.add_argument("-i", "--input", help="Path to input test data (directory containing .jpg files)")
     parser.add_argument("-o", "--output", required=True, help="Path to output directory for XML files")
     args = parser.parse_args()
 
-    # Check if default 'image' folder exists when no input path is provided
-    if args.input == "image" and not os.path.exists("image"):
-        raise FileNotFoundError("Default folder 'image' not found. Provide a valid input directory.")
+    # If no input directory specified, default to 'image' in current directory
+    if not args.input:
+        default_input = os.path.join(os.getcwd(), 'image')
+        if os.path.exists(default_input):
+            input_dir = default_input
+        else:
+            print("Error: No input directory provided and default 'image' folder not found.")
+            sys.exit(1)
+    else:
+        input_dir = args.input
 
-    main(args.input, args.output)
+    # Validate input directory
+    if not os.path.isdir(input_dir):
+        print(f"Error: {input_dir} is not a valid directory.")
+        sys.exit(1)
+
+    main(input_dir, args.output)
 EOF
 )
 
